@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login</title>
+    <link rel="stylesheet" href="">
+    </head>
+    <style>
+         .container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 50vh 50vh; /* Full viewport height for vertical centering */
+    border: 1px solid #ccc; /* Border for the box */
+    padding: 50px; /* Inner spacing */
+    border-radius: 8px; /* Rounded corners */
+    background-color: #ffffff; /* Optional: light background */
+    box-shadow: 0 2px 4px rgba(52, 22, 22, 0.1); /* Optional: subtle shadow */
+    width: 300px; /* Adjust width as needed */
+    margin: 250px auto; /* Center the box */
+  }
+      
+        .loginform{
+            align-items: row;
+        }
+        .submit{
+            background-color: blue;
+            border-radius: 10px;
+            margin-bottom: 30px;
+            height: 30px;
+            width: 70px;
+            font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+        }
+        .form-actions{
+            display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 40px;
+  gap: 30px;
+        }
+
+.input-group input {
+  height: 20px;        /* Increase input box height */
+  font-size: 20px;     /* Matches placeholder size */
+  padding: 10px;       /* Optional: for inner spacing */
+}
+
+.input-group input::placeholder {
+  font-size: 14px;     /* Placeholder text size */
+  
+}
+       
+    </style>
+    <div class="container">
+        <form class="login_form" >
+          <h1 class="Login">Login</h1>
+          <div class="form-row">
+            <div class="input-group" >
+                <label for="username">Username</label>
+              <input class="loginform" type="text" placeholder="Enter username" id="username"/>
+            </div>
+            <div class="input-group">
+               <label for="password">Password</label>
+              <input class="loginform" type="password" placeholder="Enter password" id="password" />
+            </div>
+            <div class="form-actions">
+                  <a class="href" href="forgot_password">Forgot password ?</a>
+                </div>
+                <div class="form-actions">
+                  <button class="submit" type="submit">Login</button>
+                </div>
+              </div>
+          </div>
+        </form>
+      </div>
+        
+</html>

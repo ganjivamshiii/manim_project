@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cross-Learning</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: #f5f5f5;
+      font-family: Arial, sans-serif;
+      color: #333;
+    }
+
+    .page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .navbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px 30px;
+      background-color: #ffcc00;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .navbar h1 {
+      margin: 0;
+      font-size: 1.5rem;
+      font-weight: bold;
+    }
+
+    .navbar a {
+      color: inherit;
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+
+    .navbar a:hover {
+      color: #0056b3;
+    }
+
+    .title {
+      font-family: 'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande',
+        'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
+    }
+
+    .nav-links {
+      display: flex;
+      gap: 30px;
+      align-items: center;
+    }
+
+    .main-section {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px 20px;
+      text-align: center;
+    }
+
+    .main-section h2 {
+      font-size: 2rem;
+      margin-bottom: 30px;
+      color: #333;
+    }
+
+    .chat-container {
+      width: 90%;
+      max-width: 800px;
+      background-color: #fff;
+      padding: 25px;
+      border-radius: 15px;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+
+    .chat-form {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .chat-input {
+      width: 100%;
+      min-height: 150px;
+      padding: 15px;
+      border: 2px solid #ddd;
+      border-radius: 8px;
+      font-size: 16px;
+      resize: vertical;
+      transition: border-color 0.3s;
+    }
+
+    .chat-input:focus {
+      border-color: #ffcc00;
+      outline: none;
+    }
+
+    .chat-buttons {
+      display: flex;
+      justify-content: flex-end;
+      gap: 15px;
+    }
+
+    .chat-buttons button {
+      background-color: #ffcc00;
+      color: #333;
+      border: none;
+      border-radius: 8px;
+      padding: 12px 25px;
+      cursor: pointer;
+      font-size: 16px;
+      font-weight: bold;
+      transition: background-color 0.3s;
+    }
+
+    .chat-buttons button:hover {
+      background-color: #e6b800;
+    }
+
+    .video-preview {
+      margin-top: 30px;
+      padding: 20px;
+      background-color: #f9f9f9;
+      border-radius: 8px;
+    }
+
+    .video-preview h3 {
+      margin-top: 0;
+      margin-bottom: 15px;
+      color: #333;
+    }
+
+    video {
+      width: 100%;
+      max-width: 640px;
+      border-radius: 8px;
+    }
+
+    @media (max-width: 768px) {
+      .navbar {
+        padding: 10px 15px;
+        flex-direction: column;
+        gap: 10px;
+      }
+      
+      .nav-links {
+        gap: 15px;
+      }
+      
+      .main-section h2 {
+        font-size: 1.5rem;
+      }
+      
+      .chat-container {
+        width: 95%;
+        padding: 15px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <nav class="navbar">
+      <h1 class="title">GradientLearning</h1>
+      <div class="nav-links">
+        <a href="#home"><h1>Home</h1></a>
+        <a href="#contact"><h1>Contact</h1></a>
+        <a href="#signin"><h1>Sign in</h1></a>
+      </div>
+    </nav>
+
+    <div class="main-section">
+      <h2>What can I help with?</h2>
+      <div class="chat-container">
+       <!-- Change this part in your HTML -->
+<form id="renderForm" class="chat-form">
+  <textarea id="promptInput" class="chat-input" placeholder="Describe the animation you want to create..."></textarea>
+  <div class="chat-buttons">
+    <button type="submit">Generate Video</button>
+  </div>
+</form>
+        
+        <div id="loadingIndicator" style="display: none;">
+          <p>Generating your video... Please wait.</p>
+        </div>
+        
+        <div id="videoPreview" class="video-preview" style="display: none;">
+          <h3>Rendered Video:</h3>
+          <video id="generatedVideo" controls>
+          <source src="" type="video/mp4">
+          Your browser does not support the video tag.
+          </video>
+        </div>
+        
+        <div id="errorMessage" style="color: red; display: none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('renderForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  
+  const prompt = document.getElementById('promptInput').value.trim();
+  if (!prompt) {
+    showError("Please describe the animation you want to create");
+    return;
+  }
+  
+  // UI updates
+  document.getElementById('loadingIndicator').style.display = 'block';
+  document.getElementById('videoPreview').style.display = 'none';
+  document.getElementById('errorMessage').style.display = 'none';
+  
+  try {
+    const response = await fetch('/render', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ prompt: prompt })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to generate video');
+    }
+    
+    const data = await response.json();
+    
+    // For async processing, you'll need to implement polling for the task status
+    if (data.task_id) {
+      pollForResult(data.task_id);
+    }
+  } catch (error) {
+    showError(error.message);
+    document.getElementById('loadingIndicator').style.display = 'none';
+  }
+});
+
+function pollForResult(taskId) {
+  const checkInterval = setInterval(async () => {
+    try {
+      const response = await fetch(`/check-result?task_id=${taskId}`);
+      const data = await response.json();
+      
+      if (data.status === 'complete') {
+        clearInterval(checkInterval);
+        document.getElementById('loadingIndicator').style.display = 'none';
+        if (data.video_path) {
+          const videoElement = document.getElementById('generatedVideo');
+          videoElement.src = data.video_path;
+          document.getElementById('videoPreview').style.display = 'block';
+        }
+        // Optionally show the generated code
+        document.getElementById('manimCode').value = data.manim_code || '';
+      } else if (data.status === 'error') {
+        clearInterval(checkInterval);
+        showError(data.message);
+        document.getElementById('loadingIndicator').style.display = 'none';
+      }
+    } catch (error) {
+      clearInterval(checkInterval);
+      showError('Failed to check video status');
+      document.getElementById('loadingIndicator').style.display = 'none';
+    }
+  }, 1000);
+}
+  </script>
+</body>
+</html>
