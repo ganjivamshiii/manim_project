@@ -1,170 +1,185 @@
+from flask import request, jsonify, render_template
+import uuid
+import threading
 import re
-import json
-import requests
-from requests.exceptions import RequestException, Timeout, HTTPError
-from config import HF_API_URL, HEADERS
+import os
+import shutil
+import subprocess
+from code_generation import generate_with_hf, get_fallback_animation
+from config import UPLOAD_FOLDER, VIDEO_FOLDER
 
-def clean_manim_code(code):
-    """
-    Thoroughly clean and reformat Manim code to ensure proper Python syntax and indentation.
-    This function completely rebuilds the code structure based on Python syntax rules.
-    """
-    # Remove non-ASCII characters
-    cleaned = re.sub(r'[^\x00-\x7F]+', '', code)
+# Task tracking
+active_tasks = {}
+
+def register_routes(app):
+    """Register all routes with the Flask app"""
     
-    # Extract code between triple backticks if present
-    code_match = re.search(r'```(?:python)?\s*(.*?)\s*```', cleaned, re.DOTALL)
-    if code_match:
-        cleaned = code_match.group(1)
-    
-    # Split into lines and process
-    lines = cleaned.split('\n')
-    result = []
-    
-    # Keep track of whether we've already added the import
-    import_added = False
-    
-    # Track indentation levels
-    in_class = False
-    in_method = False
-    
-    for line in lines:
-        stripped = line.strip()
+    @app.route("/")
+    def index():
+        return render_template("index.html")
+
+    @app.route("/render", methods=["POST"])
+    def render_video():
+        data = request.get_json()
+        user_prompt = data.get("prompt", "").strip()
+        if not user_prompt:
+            return jsonify({"error": "No prompt provided"}), 400
+
+        # Start async processing
+        task_id = str(uuid.uuid4())
+        active_tasks[task_id] = {"status": "processing", "prompt": user_prompt}
+        threading.Thread(target=async_render, args=(task_id, user_prompt)).start()
+        return jsonify({"status": "processing", "task_id": task_id})
+
+    @app.route("/check-result", methods=["GET"])
+    def check_result():
+        task_id = request.args.get("task_id")
+        if not task_id or task_id not in active_tasks:
+            return jsonify({"status": "error", "message": "Invalid task ID"}), 404
         
-        # Skip empty lines but preserve them
-        if not stripped:
-            result.append('')
-            continue
-            
-        # Process imports - should be at the beginning with no indentation
-        if stripped.lower().startswith('from manim import') or stripped.lower() == 'from manim import *':
-            # Skip duplicate imports
-            if not import_added:
-                result.append('from manim import *')
-                result.append('import numpy as np')
-                result.append('from math import pi as PI')
-                import_added = True
-            continue
-            
-        # Process class definitions - should have no indentation
-        if stripped.startswith('class') and '(' in stripped and ')' in stripped and ':' in stripped:
-            in_class = True
-            in_method = False
-            
-            # Ensure class doesn't conflict with Manim classes
-            if any(conflict in stripped for conflict in ['class Square(', 'class Circle(', 'class Text(']):
-                # Extract class name and add "Animation" to it
-                class_name = re.search(r'class\s+(\w+)\(', stripped).group(1)
-                stripped = stripped.replace(f'class {class_name}(', f'class {class_name}Animation(')
-                
-            result.append(stripped)
-            continue
-            
-        # Process method definitions - should be indented under class
-        if in_class and stripped.startswith('def') and ':' in stripped:
-            in_method = True
-            result.append(' ' * 4 + stripped)  # 4 spaces indentation
-            continue
-            
-        # Everything inside a method gets 8-space indentation
-        if in_method:
-            result.append(' ' * 8 + stripped)
-        # Everything directly inside a class (but not in a method) gets 4-space indentation
-        elif in_class:
-            result.append(' ' * 4 + stripped)
-        # Everything else gets no indentation
+        task = active_tasks[task_id]
+        if task["status"] == "complete":
+            return jsonify({
+                "status": "complete",
+                "video_path": task.get("video_path"),
+                "manim_code": task.get("code")
+            })
+        elif task["status"] == "error":
+            return jsonify({"status": "error", "message": task.get("message")}), 400
         else:
-            result.append(stripped)
-    
-    final_code = '\n'.join(result)
-    
-    # Make sure code starts with the import
-    if not import_added:
-        final_code = 'from manim import *\nimport numpy as np\nfrom math import pi as PI\n\n' + final_code
-        
-    # Remove incompatible parameters that cause errors
-    final_code = re.sub(r'axis_color\s*=\s*[^,\)]+,?', '', final_code)
-    final_code = re.sub(r',\s*\)', ')', final_code)  # Clean up trailing commas
-    
-    # Fix common compatibility issues
-    final_code = re.sub(r'tip_length\s*=\s*[^,\)]+,?', '', final_code)
-    final_code = re.sub(r'add_coordinates\(\s*\)', 'add_coordinates()', final_code)
-    
-    # Check if there's a Scene class
-    if 'class' not in final_code or 'Scene' not in final_code:
-        # If no proper scene class found, use a default one
-        final_code = """from manim import *
-import numpy as np
-from math import pi as PI
+            return jsonify({"status": "processing"})
 
-class DefaultScene(Scene):
-    def construct(self):
-        circle = Circle(color=BLUE)
-        self.play(Create(circle))
-        text = Text("Animation Example").next_to(circle, UP)
-        self.play(Write(text))
-"""
-    
-    return final_code
-
-def generate_with_hf(prompt):
+def async_render(task_id, prompt):
     try:
-        payload = {
-            "inputs": f"<s>[INST] Generate ONLY Manim code for: {prompt}\nRules:\n1. Use basic shapes\n2. Max 3 animations\n3. No explanations\n4. Include 'from manim import *'\n5. Make sure to use proper Python indentation\n6. Don't use the name 'Square' for a Scene class as it's already defined in Manim\n7. Don't use parameters like 'axis_color' or 'tip_length' which may be incompatible with recent Manim versions\n8. Use manim 0.17.2 compatible syntax only [/INST]",
-            "parameters": {"max_new_tokens": 500, "temperature": 0.3, "return_full_text": False}
-        }
+        # Generate code using Hugging Face API
+        manim_code = generate_with_hf(prompt)
         
-        # Add error handling and retrying
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                response = requests.post(HF_API_URL, headers=HEADERS, json=payload, timeout=60)
-                response.raise_for_status()
-                
-                # Handle different response formats
-                result = response.json()
-                if isinstance(result, list) and len(result) > 0:
-                    code = result[0].get('generated_text', str(result[0]))
-                elif isinstance(result, dict) and 'generated_text' in result:
-                    code = result['generated_text']
-                else:
-                    print(f"Unexpected response format: {result}")
-                    code = str(result)
-                
-                # Extract code between ```python and ``` if they exist
-                code_match = re.search(r'```python\s*(.*?)\s*```', code, re.DOTALL)
-                if code_match:
-                    code = code_match.group(1)
-                
-                # Clean and format the code
-                return clean_manim_code(code)
-            except (RequestException, Timeout, HTTPError) as e:
-                if attempt < max_retries - 1:
-                    print(f"Attempt {attempt + 1} failed: {str(e)}. Retrying...")
-                    continue
-                else:
-                    print(f"Max retries reached: {str(e)}")
-                    raise RuntimeError(f"API request failed after {max_retries} attempts: {str(e)}")
+        # Process the Manim code
+        scene_id = str(uuid.uuid4())
+        filename = f"{scene_id}.py"
+        filepath = os.path.abspath(os.path.join(UPLOAD_FOLDER, filename))
+        
+        # Save the code
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(manim_code)
+        
+        print(f"Generated code saved to {filepath}")
+        print("-"*40)
+        print(manim_code)
+        print("-"*40)
+
+        # Extract scene class name
+        scene_match = re.search(r"class\s+(\w+)\(Scene\)", manim_code)
+        if not scene_match:
+            raise ValueError("No valid Scene class found in the generated code")
+        scene_name = scene_match.group(1)
+        
+        # Validate Scene name
+        if scene_name in ["Circle", "Square", "Rectangle", "Line", "Text"]:
+            new_scene_name = f"{scene_name}Animation"
+            manim_code = manim_code.replace(f"class {scene_name}(Scene)", f"class {new_scene_name}(Scene)")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(manim_code)
+            scene_name = new_scene_name
+
+        video_found = render_animation(filepath, scene_id, scene_name, manim_code)
+        
+        # If the primary animation failed, try the fallback
+        if not video_found:
+            print("Using fallback animation...")
+            fallback_code = get_fallback_animation()
+            video_found = render_fallback_animation(scene_id, fallback_code)
+            if video_found:
+                manim_code = fallback_code
+        
+        if video_found:
+            rel_path = f"/static/videos/{scene_id}.mp4"
+            active_tasks[task_id] = {
+                "status": "complete",
+                "video_path": rel_path,
+                "code": manim_code
+            }
+        else:
+            raise FileNotFoundError("Could not create any video")
+            
     except Exception as e:
-        print(f"Error in generate_with_hf: {str(e)}")
-        # Fallback to a simple example if API fails
-        return get_fallback_animation()
+        error_message = str(e)
+        print(f"Error in async render: {error_message}")
+        active_tasks[task_id] = {
+            "status": "error",
+            "message": error_message
+        }
 
-def get_fallback_animation():
-    """Return a fallback animation code when the main one fails"""
-    return """from manim import *
-import numpy as np
-from math import pi as PI
+def render_animation(filepath, scene_id, scene_name, manim_code):
+    """Render the animation using manim"""
+    media_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
+    os.makedirs(media_dir, exist_ok=True)
+    
+    video_found = False
+    
+    try:
+        print(f"Rendering animation for scene: {scene_name}")
+        result = subprocess.run(
+            ["manim", "-ql", "--media_dir", media_dir, filepath, scene_name],
+            capture_output=True,
+            text=True,
+            cwd=os.path.dirname(os.path.abspath(__file__)))
+        
+        if result.returncode != 0:
+            raise RuntimeError(f"Manim error: {result.stderr}")
+            
+        # Find the video file
+        for root, _, files in os.walk(media_dir):
+            for file in files:
+                if file.endswith(".mp4") and scene_name in file:
+                    video_path = os.path.join(VIDEO_FOLDER, f"{scene_id}.mp4")
+                    os.makedirs(os.path.dirname(video_path), exist_ok=True)
+                    shutil.move(os.path.join(root, file), video_path)
+                    video_found = True
+                    print(f"Video successfully created: {video_path}")
+                    break
+            if video_found:
+                break
+    except Exception as e:
+        print(f"Primary animation failed: {str(e)}")
+    
+    return video_found
 
-class FallbackScene(Scene):
-    def construct(self):
-        title = Text("Animation Example", color=BLUE)
-        self.play(Write(title))
-        self.wait(0.5)
+def render_fallback_animation(scene_id, fallback_code):
+    """Render the fallback animation when main animation fails"""
+    media_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "media")
+    abs_path = os.path.abspath(os.path.dirname(__file__))
+    fallback_file = os.path.abspath(os.path.join(UPLOAD_FOLDER, f"fallback_{scene_id}.py"))
+    
+    os.makedirs(os.path.dirname(fallback_file), exist_ok=True)
+    video_found = False
+    
+    try:
+        with open(fallback_file, "w", encoding="utf-8") as f:
+            f.write(fallback_code)
+            
+        result = subprocess.run(
+            ["manim", "-ql", "--media_dir", media_dir, fallback_file, "FallbackScene"],
+            capture_output=True,
+            text=True,
+            cwd=abs_path)
+            
+        if result.returncode != 0:
+            raise RuntimeError(f"Fallback animation also failed. Error: {result.stderr}")
         
-        circle = Circle(color=RED, fill_opacity=0.5)
-        self.play(Create(circle))
-        
-        text = Text("Fallback Animation").scale(0.5).next_to(circle, DOWN)
-        self.play(FadeIn(text))
-"""
+        # Find the fallback video
+        for root, _, files in os.walk(media_dir):
+            for file in files:
+                if file.endswith(".mp4") and "FallbackScene" in file:
+                    video_path = os.path.join(VIDEO_FOLDER, f"{scene_id}.mp4")
+                    os.makedirs(os.path.dirname(video_path), exist_ok=True)
+                    shutil.move(os.path.join(root, file), video_path)
+                    video_found = True
+                    print(f"Fallback video created: {video_path}")
+                    break
+            if video_found:
+                break
+    except Exception as e:
+        print(f"Fallback animation failed: {str(e)}")
+    
+    return video_found
