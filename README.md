@@ -9,6 +9,10 @@ A web application that generates mathematical animations using Manim (Mathematic
 - **Fallback Mechanism**: Graceful degradation with default animations when generation fails
 - **Task Management System**: Background job tracking with UUID-based task identification
 
+## 🎥 Demo Video
+
+[![Watch the video](demo-thumbnail.png)](https://drive.google.com/file/d/16vG3TemoiRDOjIkqP1DvcLVFfA9re2Ji/view?usp=sharing)
+
 ## 🛠️ Technology Stack
 
 ### Backend
