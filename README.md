@@ -11,7 +11,7 @@ A web application that generates mathematical animations using Manim (Mathematic
 
 ## 🎥 Demo Video
 
-[![Watch the video](demo-thumbnail.png)](https://drive.google.com/file/d/16vG3TemoiRDOjIkqP1DvcLVFfA9re2Ji/view?usp=sharing)
+![Demo](demo-thumbnail.gif)
 
 ## 🛠️ Technology Stack
 
